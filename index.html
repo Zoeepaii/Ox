@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C101A3 全力掃描模式</title>
+    <style>
+        :root { --primary: #007aff; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f2f2f7; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; width: 340px; }
+        .main-val { font-size: 80px; font-weight: 800; color: #1c1c1e; line-height: 1; }
+        .main-val span { font-size: 24px; color: #8e8e93; }
+        button { background: var(--primary); color: white; border: none; padding: 18px; border-radius: 16px; font-size: 17px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 20px; }
+        #log { font-size: 13px; color: #ff3b30; margin-top: 20px; white-space: pre-wrap; text-align: left; background: #fff1f0; padding: 10px; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div id="status">準備就緒</div>
+    <div class="main-val" id="spo2-display">--<span>%</span></div>
+    <div id="hr-display">❤️ -- BPM</div>
+    <button id="connectBtn">🔍 掃描所有藍牙設備</button>
+    <div id="log">提示：手指請插入血氧機再點按鈕</div>
+</div>
+
+<script>
+    const connectBtn = document.getElementById('connectBtn');
+    const spo2Display = document.getElementById('spo2-display');
+    const hrDisplay = document.getElementById('hr-display');
+    const logDiv = document.getElementById('log');
+
+    // C101A3 常見的 UUID
+    const BERRY_SERVICE_UUID = '0000ff12-0000-1000-8000-00805f9b34fb';
+    const BERRY_CHAR_UUID    = '0000ff02-0000-1000-8000-00805f9b34fb';
+
+    connectBtn.addEventListener('click', async () => {
+        try {
+            logDiv.innerText = "正在掃描...";
+            
+            // 【修改重點】取消所有過濾，列出附近所有的藍牙設備
+            const device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: true, 
+                optionalServices: [BERRY_SERVICE_UUID, 0x1822, 0x180D, 0xFF12]
+            });
+
+            logDiv.innerText = `選中設備: ${device.name}\n正在連線...`;
+            const server = await device.gatt.connect();
+            
+            // 嘗試獲取服務
+            const service = await server.getPrimaryService(BERRY_SERVICE_UUID);
+            const characteristic = await service.getCharacteristic(BERRY_CHAR_UUID);
+
+            await characteristic.startNotifications();
+            logDiv.innerText = "✅ 連線成功！";
+
+            characteristic.addEventListener('characteristicvaluechanged', (event) => {
+                const data = event.target.value;
+                // BerryMed 協議解析
+                for (let i = 0; i < data.byteLength; i++) {
+                    if ((data.getUint8(i) & 0x80) && (i + 4 < data.byteLength)) {
+                        const hr = data.getUint8(i + 2) & 0x7F;
+                        const spo2 = data.getUint8(i + 4) & 0x7F;
+                        if (spo2 > 0 && spo2 <= 100) {
+                            spo2Display.innerHTML = `${spo2}<span>%</span>`;
+                            hrDisplay.innerText = `❤️ ${hr} BPM`;
+                        }
+                    }
+                }
+            });
+
+        } catch (error) {
+            logDiv.innerText = "連線失敗原因：\n" + error;
+        }
+    });
+</script>
+</body>
+</html>
